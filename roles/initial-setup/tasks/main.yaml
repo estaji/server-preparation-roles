@@ -1,54 +1,82 @@
 ---
-  - name: Set hostname
-    ansible.builtin.shell: hostnamectl set-hostname {{ new_hostname }}
+- name: Verify System Requirements
+  block:
+    - name: Ensure OS Version
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version == "24.04"
+        fail_msg: "System must be Ubuntu 24.04. Found: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        success_msg: "OS validation successful."
 
-  - name: Modify the bashrc file
-    ansible.builtin.blockinfile:
-      state: present
-      insertafter: EOF
-      dest: /root/.bashrc
-      marker: "# ANSIBLE MANAGED BLOCK"
-      content: |
-        {{ terminal_colors }}
-        export EDITOR=/usr/bin/vim
-        source /etc/bash_completion
+    - name: Ensure CPU Cores meet minimum requirement
+      ansible.builtin.assert:
+        that:
+          - ansible_processor_vcpus >= desired_cpu_cores
+        fail_msg: "System has {{ ansible_processor_vcpus }} cores, but {{ desired_cpu_cores }} are required."
+        success_msg: "CPU core count is sufficient."
 
-  - name: Setup timezone
-    ansible.builtin.shell: timedatectl set-timezone Asia/Tehran
+    - name: Ensure Total Memory meets minimum requirement
+      ansible.builtin.assert:
+        that:
+          - ansible_memtotal_mb >= (desired_mem_gb * 1024)
+        fail_msg: "System has {{ ansible_memtotal_mb }}MB RAM, but {{ desired_mem_gb }}GB is required."
+        success_msg: "Memory capacity is sufficient."
 
-  - name: Check current swap
-    ansible.builtin.shell: swapon --show
-    register: swap_status
+    - name: Ensure Root Partition (/) has enough free space
+      ansible.builtin.assert:
+        that:
+          - item.mount == "/"
+          - (item.size_available / 1024 / 1024 / 1024) >= desired_disk_gb
+        fail_msg: "The root partition does not have enough free space ({{ desired_disk_gb }}GB required)."
+        success_msg: "Disk space on / is sufficient."
+      loop: "{{ ansible_mounts }}"
+      when: item.mount == "/"
 
-  - name: Setup swap memory if needed
-    when: swap_status.stdout == ""
-    block:
-      - name: Check whether "/swapfile" exists
-        register: idCheckSwap
-        ansible.builtin.stat:
-          path: /swapfile
+- name: Set hostname
+  ansible.builtin.shell: hostnamectl set-hostname {{ new_hostname }}
 
-      - name: Fail it if "/swapfile" exists
-        ansible.builtin.fail:
-          msg: Swap file already exists
-        when: idCheckSwap.stat.exists == true
+- name: Modify the bashrc file
+  ansible.builtin.blockinfile:
+    state: present
+    insertafter: EOF
+    dest: /root/.bashrc
+    marker: "# ANSIBLE MANAGED BLOCK"
+    content: |
+      {{ terminal_colors }}
+      export EDITOR=/usr/bin/vim
+      source /etc/bash_completion
 
-      - name: Allocate the swap file
-        ansible.builtin.shell: fallocate -l {{ swap_size }} /swapfile
+- name: Setup timezone
+  ansible.builtin.shell: timedatectl set-timezone {{ time_zone }}
 
-      - name: Change permission of the swap file
-        ansible.builtin.file:
-          path: /swapfile
-          mode: 600
+- name: Check current swap
+  ansible.builtin.shell: swapon --show
+  register: swap_status
 
-      - name: Create a swap area on the swap file
-        ansible.builtin.shell: mkswap /swapfile
-
-      - name: Activate the swap file as a swap memory
-        ansible.builtin.shell: swapon /swapfile
-
-      - name: Append swap to /etc/fstab
-        ansible.builtin.lineinfile:
-          dest: /etc/fstab
-          line: "\n/swapfile swap swap defaults 0 0\n"
-          owner: root
+- name: Setup swap memory if needed
+  when: swap_status.stdout == ""
+  block:
+    - name: Check whether "/swapfile" exists
+      register: idCheckSwap
+      ansible.builtin.stat:
+        path: /swapfile
+    - name: Fail it if "/swapfile" exists
+      ansible.builtin.fail:
+        msg: Swap file already exists
+      when: idCheckSwap.stat.exists == true
+    - name: Allocate the swap file
+      ansible.builtin.shell: fallocate -l {{ swap_size }} /swapfile
+    - name: Change permission of the swap file
+      ansible.builtin.file:
+        path: /swapfile
+        mode: 600
+    - name: Create a swap area on the swap file
+      ansible.builtin.shell: mkswap /swapfile
+    - name: Activate the swap file as a swap memory
+      ansible.builtin.shell: swapon /swapfile
+    - name: Append swap to /etc/fstab
+      ansible.builtin.lineinfile:
+        dest: /etc/fstab
+        line: "\n/swapfile swap swap defaults 0 0\n"
+        owner: root
