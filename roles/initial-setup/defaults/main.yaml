@@ -1,3 +1,7 @@
 new_hostname: "srv"
 terminal_colors: 'export PS1="\[\e[1;37m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\] \[\e[1;31m\]\w\[\e[m\]\[\e[1;33m\]#\[\e[m\] "'
 swap_size: "4G"
+time_zone: "Asia/Tehran"
+desired_cpu_cores: 4
+desired_mem_gb: 7
+desired_disk_gb: 90
